@@ -22,6 +22,14 @@ Timeout for each line of stdin after 5 seconds:
 cat urls.txt | hakrawler -timeout 5
 ```
 
+Crawl up to four stdin URLs at the same time:
+
+```
+cat urls.txt | hakrawler -seed-concurrency 4
+```
+
+> `-t` limits the number of incomplete HTTP requests for the whole process, including redirects. `-seed-concurrency` limits how many stdin URLs are active at once; stdin lines beyond that are queued in a bounded buffer, which applies backpressure to the input stream. Each seed keeps its own depth, scope and visited-URL state. With `-timeout`, the timer starts when the seed becomes active and cancelling it does not affect other seeds.
+
 Send all requests through a proxy:
 
 ```
@@ -104,6 +112,8 @@ Usage of hakrawler:
   -proxy string
     	Proxy URL. E.g. -proxy http://127.0.0.1:8080
   -s	Show the source of URL based on where it was found. E.g. href, form, script, etc.
+  -seed-concurrency int
+    	Maximum number of stdin URLs crawled concurrently. (default 1)
   -size int
     	Page size limit, in KB. (default -1)
   -subs
@@ -114,6 +124,23 @@ Usage of hakrawler:
     	Maximum time to crawl each URL from stdin, in seconds. (default -1)
   -u	Show only unique urls.
   -w	Show at which link the URL is found.
+```
+
+## Testing
+
+The test suite uses local `httptest` servers only (no public network access) and channel-gated responses, with bounded observation windows rather than random sleeps, to verify:
+
+- `-seed-concurrency` caps active seeds and admits stdin lines in order
+- `-t` caps incomplete HTTP requests process-wide, including redirect hops
+- a slow seed does not occupy free request slots needed by other seeds
+- `-timeout` cancels in-flight work, releases the seed slot, and suppresses late output
+- a slow stdout consumer applies bounded backpressure and resumes cleanly
+- bounded stdin queueing applies backpressure to the input stream
+- per-seed depth, scope and visited-URL state are independent, while `-u` deduplicates globally
+- cancelled requests return all `-t` slots (no request-slot leaks)
+
+```
+go test ./...
 ```
 
 ---
